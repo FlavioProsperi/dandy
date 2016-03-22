@@ -74,16 +74,18 @@ class TypeclassMacros(val c: whitebox.Context) {
                     case (ExistentialTypeTree(AppliedTypeTree(Ident(itparam @ TypeName(_)), _), _), f) => f(itparam)
                   }
                 val impl = TypeName(c.freshName())
-                q"""
-                  class $impl[..$defitparams](implicit ..$iimplicits) extends $tc[..$itparams] {
-                    ..$anonbody
-                  }
-                  implicit def ${TermName(c.freshName())}[..$defitparams](implicit ..$iimplicits) =
-                    new $impl
+                List(
+                  q"""
+                  class $impl[..$defitparams](implicit ..$iimplicits)
+                  extends $tc[..$itparams] { ..$anonbody }
+                """,
+                  q"""
+                  implicit def ${TermName(c.freshName())}[..$defitparams](implicit ..$iimplicits) = new $impl
                 """
-              case other => other
+                )
+              case other => other :: Nil
             }
-            q""" object $name { ..$instances } """
+            q""" object $name { ..${instances.flatten} } """
         }
         val result = q"""
           abstract class $tc[..$params](implicit ..$implicits) { ..$body }
