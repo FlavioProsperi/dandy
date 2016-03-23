@@ -8,9 +8,11 @@ import cats._
 
 object Greet {
   instance[String] {
-    def greet(s: String) = s"This is a string: $s"
+    def greet(s: String) =
+      s"This is a string: $s"
   }
   instance[T][T] {
-    def greet(t: T) = s"This is something else: ${implicitly[Show[T]].show(t)}"
+    def greet(t: T) =
+      s"This is something else: ${implicitly[Show[T]].show(t)}"
   }
 }
