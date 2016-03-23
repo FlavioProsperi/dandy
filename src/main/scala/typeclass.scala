@@ -56,6 +56,15 @@ class TypeclassMacros(val c: whitebox.Context) {
     }
   }
 
+  object TypeDefName {
+    def unapply(t: Tree): Option[TypeName] = t match {
+      case Ident(tn @ TypeName(_)) => Some(tn)
+      case ExistentialTypeTree(AppliedTypeTree(Ident(tn @ TypeName(_)), _), _) => Some(tn)
+      case TypeDef(_, tn @ TypeName(_), _, _) => Some(tn)
+      case _ => None
+    }
+  }
+
   def impl(annottees: c.Expr[Any]*) = {
     annottees.map(_.tree) match {
       case q"$mods trait $tc[..${ Subjects(subjects) }] { ..$body }" :: rest =>
@@ -70,17 +79,19 @@ class TypeclassMacros(val c: whitebox.Context) {
                     case Right(subject) => subject.implicits _
                   })
                   .flatMap {
-                    case (Ident(itparam @ TypeName(_)), f) => f(itparam)
-                    case (ExistentialTypeTree(AppliedTypeTree(Ident(itparam @ TypeName(_)), _), _), f) => f(itparam)
+                    case (TypeDefName(itparam), f) => f(itparam)
                   }
                 val impl = TypeName(c.freshName())
+                val implTypeArgs = defitparams.collect {
+                  case TypeDefName(tn) => tn
+                }
                 List(
                   q"""
                   class $impl[..$defitparams](implicit ..$iimplicits)
                   extends $tc[..$itparams] { ..$anonbody }
                 """,
                   q"""
-                  implicit def ${TermName(c.freshName())}[..$defitparams](implicit ..$iimplicits) = new $impl
+                  implicit def ${TermName(c.freshName())}[..$defitparams](implicit ..$iimplicits) = new $impl[..$implTypeArgs]
                 """
                 )
               case other => other :: Nil
