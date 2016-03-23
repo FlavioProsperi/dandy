@@ -30,6 +30,8 @@ class TypeclassMacros(val c: whitebox.Context) {
     def unapply(t: Tree): Option[Subject] = t match {
       case TypeDef(mods, name, tparams, TypeBoundsTree(_, hi)) if hi.nonEmpty =>
         Some(new Subject(name, TypeDef(mods, name, tparams, TypeBoundsTree(q"", q"")), hi))
+      case tq"<<:[${ lhs @ TypeDefName(name) }, $supers]" =>
+        Some(new Subject(name, lhs, supers))
       case _ => None
     }
   }
@@ -42,14 +44,18 @@ class TypeclassMacros(val c: whitebox.Context) {
       })
   }
 
-  class Defitparam(
-    val orig: Tree,
-    val name: TypeName,
-    val arg: TypeDef
+  case class Defitparam(
+    orig: Tree,
+    name: TypeName,
+    arg: TypeDef,
+    subject: Option[Subject] = None
   )
 
   object Defitparam {
     def unapply(tree: Tree): Option[Defitparam] = tree match {
+      case tq"<<:[${ Defitparam(p) }, $supers]" =>
+        val Subject(s) = tree
+        Some(p.copy(subject = Some(s)))
       case ExistentialTypeTree(AppliedTypeTree(Ident(name @ TypeName(_)), wildcards), _) =>
         Some(new Defitparam(
           orig = tree,
@@ -86,7 +92,12 @@ class TypeclassMacros(val c: whitebox.Context) {
     def _3 = itparams
     def _4 = body
 
-    def implicits(subjects: List[Either[Tree, Subject]]) =
+    val subjectImplicits: List[ValDef] = defitparams.collect {
+      case Defitparam(_, _, _, Some(subject)) =>
+        subject.implicits()
+    }.flatten
+
+    def implicits(subjects: List[Either[Tree, Subject]]): List[ValDef] =
       itparams
         .zip(subjects.collect {
           case Right(subject) => subject.implicits _
@@ -128,7 +139,7 @@ class TypeclassMacros(val c: whitebox.Context) {
             val instances = protos.collect {
               case InstanceDecl(instance, defitparams, itparams, instanceBody) =>
                 val impl = TypeName(c.freshName())
-                val instanceImplicits = instance.implicits(subjects)
+                val instanceImplicits = instance.subjectImplicits ::: instance.implicits(subjects)
                 List(
                   q"""
                     private class $impl[..${defitparams.map(_.arg)}](

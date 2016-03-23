@@ -11,8 +11,18 @@ object Greet {
     def greet(s: String) =
       s"This is a string: $s"
   }
-  instance[T][T] {
+  instance[T <<: Hash][T] {
     def greet(t: T) =
-      s"This is something else: ${implicitly[Show[T]].show(t)}"
+      s"This is something else: ${implicitly[Show[T]].show(t)} @ ${implicitly[Hash[T]].hash(t)}"
+  }
+}
+
+@typeclass trait Hash[A] {
+  def hash(a: A): Int
+}
+
+object Hash {
+  instance[A][A] {
+    def hash(a: A) = a.hashCode
   }
 }
