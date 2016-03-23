@@ -11,6 +11,23 @@ class typeclass extends StaticAnnotation {
 class TypeclassMacros(val c: whitebox.Context) {
   import c.universe._
 
+  trait Renamer[N <: Name] { def rename(name: N, f: String => String): N }
+  object Renamer {
+    implicit object TypeRenamer extends Renamer[TypeName] {
+      def rename(name: TypeName, f: String => String) =
+        TypeName(f(name.toString))
+    }
+    implicit object TermRenamer extends Renamer[TermName] {
+      def rename(name: TermName, f: String => String) =
+        TermName(f(name.toString))
+    }
+  }
+
+  implicit class Rename[N <: Name: Renamer](name: N) {
+    def rename(f: String => String) =
+      implicitly[Renamer[N]].rename(name, f)
+  }
+
   class Subject(val subject: TypeName, val orig: Tree, bounds: Tree) {
     val supers: List[Tree] = {
       def supers0(t: Tree): List[Tree] =
@@ -20,10 +37,12 @@ class TypeclassMacros(val c: whitebox.Context) {
         }
       supers0(bounds)
     }
-    def implicits(arg: TypeName = subject) = supers.zipWithIndex.map {
-      case (tq"$superTC", idx) =>
-        q"protected val ${TermName(c.freshName())}: $superTC[$arg]"
-    }
+    def implicits(arg: TypeName = subject) =
+      supers.zipWithIndex.map {
+        case (tq"${ superTC @ TypeDefName(superName) }", idx) =>
+          val valname = c.freshName(superName.toTermName.rename(_ + s"$$$arg"))
+          q"protected val $valname: $superTC[$arg]"
+      }
   }
 
   object Subject {
@@ -138,8 +157,10 @@ class TypeclassMacros(val c: whitebox.Context) {
           case q"object $name { ..$protos }" =>
             val instances = protos.collect {
               case InstanceDecl(instance, defitparams, itparams, instanceBody) =>
-                val impl = TypeName(c.freshName())
-                val instanceImplicits = instance.subjectImplicits ::: instance.implicits(subjects)
+                val impl =
+                  c.freshName(tc.rename(_ + s"$$${itparams.mkString(",")}"))
+                val instanceImplicits =
+                  instance.subjectImplicits ::: instance.implicits(subjects)
                 List(
                   q"""
                     private class $impl[..${defitparams.map(_.arg)}](
@@ -147,7 +168,9 @@ class TypeclassMacros(val c: whitebox.Context) {
                     ) extends $tc[..$itparams] { ..$instanceBody }
                   """,
                   q"""
-                    implicit def ${TermName(c.freshName())}[..${defitparams.map(_.arg)}](
+                    implicit def ${c.freshName(tc.toTermName.rename("instance$" + _))}[
+                      ..${defitparams.map(_.arg)}
+                    ](
                       implicit ..$instanceImplicits
                     ): $tc[..$itparams] =
                       new $impl[..${defitparams.map(_.name)}]
