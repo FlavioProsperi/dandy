@@ -3,6 +3,7 @@ package dandy
 import scala.language.experimental.macros
 import scala.reflect.macros.whitebox
 import scala.annotation.StaticAnnotation
+import scala.reflect.runtime.universe.{ WeakTypeTag => RTWeakTypeTag }
 
 class typeclass extends StaticAnnotation {
   def macroTransform(annottees: Any*): Any = macro TypeclassMacros.impl
@@ -10,6 +11,11 @@ class typeclass extends StaticAnnotation {
 
 class TypeclassMacros(val c: whitebox.Context) {
   import c.universe._
+
+  def lastImpl[Cons[_], Arg](implicit wtc: WeakTypeTag[Cons[Arg]], wta: WeakTypeTag[Arg]): c.Expr[Cons[Arg]] = {
+    val TypeRef(_, impl, _) = wtc.tpe.typeConstructor
+    c.Expr[Cons[Arg]](q"new ${impl.asClass}[$wta]")
+  }
 
   trait Renamer[N <: Name] { def rename(name: N, f: String => String): N }
   object Renamer {
@@ -29,6 +35,7 @@ class TypeclassMacros(val c: whitebox.Context) {
   }
 
   class Subject(val subject: TypeName, val orig: Tree, bounds: Tree) {
+    override def toString = subject.toString
     val supers: List[Tree] = {
       def supers0(t: Tree): List[Tree] =
         t match {
@@ -142,6 +149,7 @@ class TypeclassMacros(val c: whitebox.Context) {
 
   object TypeDefName {
     def unapply(t: Tree): Option[TypeName] = t match {
+      case tn @ TypeName(_) => Some(tn)
       case Ident(tn @ TypeName(_)) => Some(tn)
       case ExistentialTypeTree(AppliedTypeTree(Ident(tn @ TypeName(_)), _), _) => Some(tn)
       case TypeDef(_, tn @ TypeName(_), _, _) => Some(tn)
@@ -153,7 +161,10 @@ class TypeclassMacros(val c: whitebox.Context) {
   def impl(annottees: c.Expr[Any]*) = {
     annottees.map(_.tree) match {
       case q"$mods trait $tc[..${ Subjects(subjects) }] { ..$body }" :: rest =>
-        val companion = rest.collect {
+        val params = subjects.map(_.fold(identity, _.orig))
+        val implicits = subjects.flatMap(_.fold(_ => Nil, _.implicits()))
+        val companionProto = if (rest.isEmpty) q"object ${tc.toTermName}" :: Nil else rest
+        val companion = companionProto.collect {
           case q"object $name { ..$protos }" =>
             val instances = protos.collect {
               case InstanceDecl(instance, defitparams, itparams, instanceBody) =>
@@ -178,10 +189,58 @@ class TypeclassMacros(val c: whitebox.Context) {
                 )
               case other => other :: Nil
             }
-            q""" object $name { ..${instances.flatten} } """
+            val definst_tparams: List[Tree] = subjects.collect {
+              case Right(subj) => subj.orig
+              case Left(arg) => arg
+            }
+            val definst_targs: List[TypeName] = subjects.collect {
+              case Right(subj) => subj.subject
+              case Left(TypeDefName(arg)) => arg
+            }
+            val alphas = definst_targs.map(tn => c.freshName(tn.rename("$alpha" + _)))
+            val Some(levels) =
+              alphas.reverse.zipWithIndex.foldLeft(Option.empty[Tree]) {
+                case (None, (alpha @ TypeName(alphaName), 0)) =>
+                  Some(q"""
+                    class ${TypeName(s"${alphaName}__$alphaName")}[$alpha]
+                    extends $tc[..${alphas}] {
+                    }
+                  """)
+                case (Some(next), (alpha @ TypeName(alphaName), idx)) =>
+                  val q"class ${ last @ TypeName(lastName) }[${ TypeDefName(alphaLast) }] extends $parentLast { ..$bodylast }" = next
+                  val step: List[Tree] =
+                    idx match {
+                      case 1 =>
+                        List(
+                          q"""
+                            private def step0[$alphaLast]: $last[$alphaLast] =
+                              macro TypeclassMacros.lastImpl[${TypeName(lastName)}, $alphaLast]
+                          """,
+                          q"def step[$alphaLast]: $tc[..$alphas] = step0[$alphaLast]"
+                        )
+                      case _ =>
+                        q"def step[$alphaLast] = new $last[$alphaLast]" :: Nil
+                    }
+                  Some(q"""
+                    class ${TypeName(s"${alphaName}__$alphaName")}[$alpha] {
+                      $next
+                      ..$step
+                    }
+                  """)
+              }
+            val def_instance =
+              q"""
+              def instance[..${definst_tparams}](body: Any)(implicit ..$implicits): $tc[..${definst_targs}] = ???
+            """
+            q"""
+              object $name {
+                ..${instances.flatten}
+                $def_instance
+                $levels
+                def step[${alphas.head}] = new ${TypeName(s"${alphas.head}__${alphas.head}")}[${alphas.head}]
+              }
+            """
         }
-        val params = subjects.map(_.fold(identity, _.orig))
-        val implicits = subjects.flatMap(_.fold(_ => Nil, _.implicits()))
         val result = q"""
           abstract class $tc[..$params](implicit ..$implicits) { ..$body }
           ..$companion

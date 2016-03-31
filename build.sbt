@@ -11,10 +11,17 @@ lazy val baseSettings = Seq(
     "-unchecked",
     "-feature",
     "-language:higherKinds"
-  )) ++ scalariformSettings ++ tutSettings
+  ),
+  initialCommands in Test := """
+    import dandy._
+    import cats._, cats.implicits._
+    import scala.reflect.runtime.universe._
+  """
+) ++ scalariformSettings ++ tutSettings
 
 lazy val deps = Seq(
  libraryDependencies ++= Seq(
+   "com.chuusai" %% "shapeless" % "2.3.0",
    "org.typelevel" %% "cats" % "0.4.1" % "test",
    "org.specs2" %% "specs2-core" % "3.7.2" % "test",
    "org.specs2" %% "specs2-matcher-extra" % "3.7.2" % "test"))
@@ -49,13 +56,6 @@ lazy val tests = project
   .settings(publish := {})
   .settings(MacroRevolverPlugin.useMacroParadise)
   .settings(MacroRevolverPlugin.testCleanse)
-  .settings(
-    initialCommands in Test := """
-      import dandy._
-      import cats._, cats.implicits._
-      import scala.reflect.runtime.universe._
-    """
-  )
   .dependsOn(core)
 
 lazy val dandy = project
