@@ -68,11 +68,13 @@ trait TypeclassCompanionModel {
       subject: Either[TypeDef, Subject]
   ) {
     val typeDef = subject.fold(identity, _.orig)
-    val TypeDef(_, name, _, _) = typeDef
+    val TypeDef(_, name, args, _) = typeDef
     val wt = name match {
       case TypeName(name) => c.freshName(TermName(s"wt$name"))
     }
-    val evidence = q"implicit val $wt: c.universe.WeakTypeTag[$name]"
+    val evidence = q"""implicit val $wt: c.universe.WeakTypeTag[
+      $name[..${List.fill(args.size)(typeNames.WILDCARD)}]
+    ]"""
   }
 
   class TypeclassCompanion(
