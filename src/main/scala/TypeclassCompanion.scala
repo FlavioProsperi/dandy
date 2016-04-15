@@ -5,6 +5,42 @@ trait TypeclassCompanionModel {
 
   import c.universe._
 
+  case class Defitparam(
+    orig: Tree,
+    name: TypeName,
+    arg: TypeDef,
+    subject: Option[Subject] = None
+  )
+
+  object Defitparam {
+    def unapply(tree: Tree): Option[Defitparam] = tree match {
+      case tq"<<:[${ Defitparam(p) }, $supers]" =>
+        val Subject(s) = tree
+        Some(p.copy(subject = Some(s)))
+      case ExistentialTypeTree(AppliedTypeTree(Ident(name @ TypeName(_)), wildcards), _) =>
+        Some(new Defitparam(
+          orig = tree,
+          name = name,
+          arg = q"type $name[..${List.fill(wildcards.size)(WC)}]"
+        ))
+      case Ident(name @ TypeName(_)) =>
+        Some(new Defitparam(
+          name = name,
+          orig = tree,
+          arg = q"type $name"
+        ))
+      case AppliedTypeTree(Ident(name @ TypeName(_)), args) =>
+        val argNames = args.collect {
+          case Ident(arg @ TypeName(_)) => q"type $arg"
+        }
+        Some(new Defitparam(
+          name = name,
+          orig = tree,
+          arg = q"type $name[..$argNames]"
+        ))
+    }
+  }
+
   class InstanceDecl(
       val defitparams: List[Defitparam],
       val itparams: List[Tree],
@@ -90,7 +126,7 @@ trait TypeclassCompanionModel {
       case other => other :: Nil
     }
     val instantiateParams = typeclass.subjects.map(new InstantiateParam(_))
-    val tree = q"""
+    def tree(debug: Boolean) = q"""
       object ${typeclass.name.toTermName} {
         ..${members.flatten}
         def instantiate[
@@ -115,10 +151,11 @@ trait TypeclassCompanionModel {
               DefDef(Modifiers(flags | Flag.OVERRIDE, privateWithin, annotations), name, tparams, vparamss, tpt, rhs)
             case x => x
           }.map(c.untypecheck(_))
-          val tree = c.typecheck(StringContext("new ", "[..", "] { ..", " }").q(
+          val tree = StringContext("new ", "[..", "] { ..", " }").q(
             TypeName(${typeclass.name.toString}),
-            ${instantiateParams.map(_.wt)}, parts)
+            ${instantiateParams.map(_.wt)}, parts
           )
+          if ($debug) println(tree)
           c.Expr[${typeclass.name}[..${instantiateParams.map(_.name)}]](tree)
         }
       }
