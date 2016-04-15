@@ -12,9 +12,9 @@ lazy val baseSettings = Seq(
     "-feature",
     "-language:higherKinds"
   ),
-  initialCommands in Test := """
+  initialCommands := """
     import dandy._
-    import cats._, cats.implicits._
+    import cats._, cats.implicits._, cats.data._, algebra.std.all._
     import scala.reflect.runtime.universe._
   """
 ) ++ scalariformSettings ++ tutSettings
@@ -22,7 +22,7 @@ lazy val baseSettings = Seq(
 lazy val deps = Seq(
  libraryDependencies ++= Seq(
    "com.chuusai" %% "shapeless" % "2.3.0",
-   "org.typelevel" %% "cats" % "0.4.1" % "test",
+   "org.typelevel" %% "cats" % "0.4.1",
    "org.specs2" %% "specs2-core" % "3.7.2" % "test",
    "org.specs2" %% "specs2-matcher-extra" % "3.7.2" % "test"))
 
@@ -55,6 +55,7 @@ lazy val tests = project
   .settings(name := "tests", moduleName := "dandy-tests")
   .settings(publish := {})
   .settings(MacroRevolverPlugin.useMacroParadise)
+  .settings(MacroRevolverPlugin.mainCleanse)
   .settings(MacroRevolverPlugin.testCleanse)
   .dependsOn(core)
 
