@@ -9,7 +9,12 @@ class typeclass(debug: Boolean = false) extends StaticAnnotation {
   def macroTransform(annottees: Any*): Any = macro TypeclassMacros.impl
 }
 
-class TypeclassMacros(val c: whitebox.Context) extends Renamers with Subjects with Utils with TypeclassModel with TypeclassCompanionModel {
+class TypeclassMacros(val c: whitebox.Context)
+    extends Renamers
+    with Subjects
+    with Utils
+    with TypeclassModel
+    with TypeclassCompanionModel {
   import c.universe._
 
   def impl(annottees: c.Expr[Any]*) = {
@@ -19,8 +24,7 @@ class TypeclassMacros(val c: whitebox.Context) extends Renamers with Subjects wi
           case q"debug = $d" => d
           case q"$d" => d
         }.headOption.map {
-          case q"false" => false
-          case q"true" => true
+          case Literal(Constant(d: Boolean)) => d
         }.getOrElse(false)
       case q"new typeclass()" => false
       case _ => sys.error(showCode(c.prefix.tree))

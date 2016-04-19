@@ -13,3 +13,5 @@ object Greets {
     def greet(p: Person) = s"Hello, ${implicitly[Show[Person]].show(p)}!"
   }
 }
+
+@typeclass class Multiplier[A[_]: Functor]

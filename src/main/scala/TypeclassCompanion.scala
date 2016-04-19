@@ -5,105 +5,75 @@ trait TypeclassCompanionModel {
 
   import c.universe._
 
-  case class Defitparam(
-    orig: Tree,
-    name: TypeName,
-    arg: TypeDef,
-    subject: Option[Subject] = None
-  )
+  sealed trait Instance {
+    def args: List[TypeName]
+    def body: List[Tree]
 
-  object Defitparam {
-    def unapply(tree: Tree): Option[Defitparam] = tree match {
-      case tq"<<:[${ Defitparam(p) }, $supers]" =>
-        val Subject(s) = tree
-        Some(p.copy(subject = Some(s)))
-      case ExistentialTypeTree(AppliedTypeTree(Ident(name @ TypeName(_)), wildcards), _) =>
-        Some(new Defitparam(
-          orig = tree,
-          name = name,
-          arg = q"type $name[..${List.fill(wildcards.size)(WC)}]"
-        ))
-      case Ident(name @ TypeName(_)) =>
-        Some(new Defitparam(
-          name = name,
-          orig = tree,
-          arg = q"type $name"
-        ))
-      case AppliedTypeTree(Ident(name @ TypeName(_)), args) =>
-        val argNames = args.collect {
-          case Ident(arg @ TypeName(_)) => q"type $arg"
-        }
-        Some(new Defitparam(
-          name = name,
-          orig = tree,
-          arg = q"type $name[..$argNames]"
-        ))
-    }
-  }
+    protected def impl(typeclass: TypeclassDef) =
+      c.freshName(typeclass.name.toTermName.rename(_ + s"$$${args.mkString(",")}"))
 
-  class InstanceDecl(
-      val defitparams: List[Defitparam],
-      val itparams: List[Tree],
-      val body: List[Tree]
-  ) {
-    val isEmpty = false
-    def get = this
-
-    val subjectImplicits: List[ValDef] = defitparams.collect {
-      case Defitparam(_, _, _, Some(subject)) =>
-        subject.implicits()
-    }.flatten
-
-    def implicits(subjects: List[Either[Tree, Subject]]): List[ValDef] =
-      itparams
-        .zip(subjects.collect {
-          case Right(subject) => subject.implicits _
-        })
-        .flatMap {
-          case (TypeDefName(itparam), f) => f(itparam)
-        }
+    protected def instanceTypeArgs: List[TypeDef] = Nil
+    protected def additionalEvidence: List[ValDef] = Nil
 
     def render(typeclass: TypeclassDef) = {
-      val impl =
-        c.freshName(typeclass.name.rename(_ + s"$$${itparams.mkString(",")}"))
-      val instanceImplicits =
-        subjectImplicits ::: implicits(typeclass.subjects)
-      List(
+      val instanceName = impl(typeclass)
+      val instanceClass = instanceName.toTypeName.rename("_" + _)
+      val evidence: List[ValDef] = (typeclass.subjects.zip(args).flatMap {
+        case (subject, arg) => subject.evidence(arg)
+      }) ::: additionalEvidence
+      q"""
+        class $instanceClass[
+          ..$instanceTypeArgs
+        ](
+          implicit ..$evidence
+        ) extends ${typeclass.name}[..$args] {
+          ..$body
+        }
+      """ ::
         q"""
-            private class $impl[..${defitparams.map(_.arg)}](
-              implicit ..$instanceImplicits
-            ) extends ${typeclass.name}[..$itparams] { ..$body }
-          """,
-        q"""
-          implicit def ${c.freshName(typeclass.name.toTermName.rename("instance$" + _))}[
-            ..${defitparams.map(_.arg)}
-            ](
-              implicit ..$instanceImplicits
-            ): ${typeclass.name}[..$itparams] =
-              new $impl[..${defitparams.map(_.name)}]
-              """
-      )
+        implicit def $instanceName[
+          ..$instanceTypeArgs
+        ](
+          implicit ..$evidence
+        ) = new $instanceClass
+      """ :: Nil
     }
   }
 
-  object InstanceDecl {
-    def unapply(t: Tree): Option[InstanceDecl] = t match {
-      case q"instance[..$itparams]({ ..$body })" =>
-        Some(new InstanceDecl(Nil, itparams, body))
-      case q"instance[..$defitparams][..$itparams]({ ..$body })" =>
-        Some(new InstanceDecl(
-          defitparams.collect { case Defitparam(p) => p },
-          itparams,
-          body
+  case class ConstantInstance(
+    args: List[TypeName],
+    body: List[Tree]
+  ) extends Instance
+
+  case class ParametricInstance(
+      subjects: List[Subject],
+      body: List[Tree]
+  ) extends Instance {
+    val args = subjects.map(_.typeName)
+    protected override def instanceTypeArgs = subjects.map(_.typeDef)
+    protected override def additionalEvidence = subjects.flatMap(_.evidence())
+  }
+
+  object Instance {
+    def unapply(tree: Tree): Option[Instance] = tree match {
+      case q"instance[..$tparams]({ ..$body })" =>
+        Some(ConstantInstance(
+          args = tparams.collect { case TypeDefName(tn) => tn },
+          body = body
         ))
-      case _ => None
+      case DefDef(_, TermName("instance"), tparams, _, _, body) =>
+        (tree :: Nil) match {
+          case Subjects(SubjectsAndBody(subjects, _)) =>
+            Some(ParametricInstance(
+              subjects = subjects,
+              body = body.children
+            ))
+        }
     }
   }
 
-  class InstantiateParam(
-      subject: Either[TypeDef, Subject]
-  ) {
-    val typeDef = subject.fold(identity, _.orig)
+  class InstantiateParam(subject: Subject) {
+    val typeDef = subject.typeDef
     val TypeDef(_, name, args, _) = typeDef
     val wt = name match {
       case TypeName(name) => c.freshName(TermName(s"wt$name"))
@@ -113,16 +83,13 @@ trait TypeclassCompanionModel {
     ]"""
   }
 
-  class TypeclassCompanion(
-      typeclass: TypeclassDef,
-      protos: List[Tree]
-  ) {
+  class TypeclassCompanion(typeclass: TypeclassDef, protos: List[Tree]) {
     val declarations = protos match {
       case q"object ${ _ } { ..$body }" :: Nil => body
       case _ => Nil
     }
     val members = declarations.collect {
-      case InstanceDecl(instance) => instance.render(typeclass)
+      case Instance(instance) => instance.render(typeclass)
       case other => other :: Nil
     }
     val instantiateParams = typeclass.subjects.map(new InstantiateParam(_))

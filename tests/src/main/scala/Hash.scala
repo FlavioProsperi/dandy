@@ -7,7 +7,7 @@ import dandy._
 }
 
 object Hash {
-  instance[A][A] {
+  def instance[A] {
     def hash(a: A) = a.hashCode
   }
 }
