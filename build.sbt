@@ -34,6 +34,7 @@ lazy val core = project
   .settings(MacroRevolverPlugin.useMacroParadise)
   .settings(MacroRevolverPlugin.testCleanse)
   .settings(deps)
+  .settings(libraryDependencies += cats % "test")
   .settings(name := "dandy", moduleName := "dandy")
   .settings(updateReadme := {
     val README = "README.md"
