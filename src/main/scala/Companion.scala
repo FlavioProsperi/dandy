@@ -27,7 +27,7 @@ trait CompanionModel {
         ](
           implicit ..$evidence
         ) extends ${typeclass.name}[..$args] {
-          ..$body
+          ..${body.map(OverrideDef[c.type](c)(_))}
         }
       """ ::
         q"""
@@ -113,11 +113,7 @@ trait CompanionModel {
           val parts: Seq[Tree] = body.map(_.tree).flatMap {
             case Block(statements, exprs) => exprs :: statements
             case statement => statement :: Nil
-          }.map {
-            case DefDef(Modifiers(flags, privateWithin, annotations), name, tparams, vparamss, tpt, rhs) =>
-              DefDef(Modifiers(flags | Flag.OVERRIDE, privateWithin, annotations), name, tparams, vparamss, tpt, rhs)
-            case x => x
-          }.map(c.untypecheck(_))
+          }.map(dandy.OverrideDef[c.type](c)(_)).map(c.untypecheck(_))
           val tree = StringContext("new ", "[..", "] { ..", " }").q(
             TypeName(${typeclass.name.toString}),
             ${instantiateParams.map(_.wt)}, parts
@@ -127,5 +123,16 @@ trait CompanionModel {
         }
       }
     """
+  }
+}
+object OverrideDef {
+  import scala.reflect.macros.whitebox
+  def apply[C <: whitebox.Context](c: C)(tree: c.universe.Tree) = {
+    import c.universe._
+    tree match {
+      case DefDef(Modifiers(flags, privateWithin, annotations), name, tparams, vparamss, tpt, rhs) =>
+        DefDef(Modifiers(flags | Flag.OVERRIDE, privateWithin, annotations), name, tparams, vparamss, tpt, rhs)
+      case x => x
+    }
   }
 }
