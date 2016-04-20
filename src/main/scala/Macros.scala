@@ -14,7 +14,7 @@ class TypeclassMacros(val c: whitebox.Context)
     with Subjects
     with Utils
     with TypeclassModel
-    with TypeclassCompanionModel {
+    with CompanionModel {
   import c.universe._
 
   def impl(annottees: c.Expr[Any]*) = {

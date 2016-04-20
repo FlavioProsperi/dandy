@@ -1,6 +1,6 @@
 package dandy
 
-trait TypeclassCompanionModel {
+trait CompanionModel {
   self: TypeclassMacros =>
 
   import c.universe._
