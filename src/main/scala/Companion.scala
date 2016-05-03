@@ -35,7 +35,7 @@ trait CompanionModel {
           ..$instanceTypeArgs
         ](
           implicit ..$evidence
-        ) = new $instanceClass
+        ): ${typeclass.name}[..$args] = new $instanceClass
       """ :: Nil
     }
   }
@@ -84,11 +84,10 @@ trait CompanionModel {
   }
 
   class TypeclassCompanion(typeclass: TypeclassDef, protos: List[Tree]) {
-    val declarations = protos match {
+    val members = (protos match {
       case q"object ${ _ } { ..$body }" :: Nil => body
       case _ => Nil
-    }
-    val members = declarations.collect {
+    }).collect {
       case Instance(instance) => instance.render(typeclass)
       case other => other :: Nil
     }
