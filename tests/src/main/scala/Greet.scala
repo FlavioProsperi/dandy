@@ -15,4 +15,8 @@ object Greet {
     def greet(s: String) =
       s"This is a string: ${implicitly[Show[String]].show(s)}"
   }
+  instance[Int] {
+    def greet(s: Int) =
+      s"This is a int: ${implicitly[Show[Int]].show(s)}"
+  }
 }
