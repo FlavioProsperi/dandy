@@ -69,6 +69,7 @@ trait CompanionModel {
               body = body.children
             ))
         }
+      case _ => None
     }
   }
 
@@ -91,23 +92,73 @@ trait CompanionModel {
       case Instance(instance) => instance.render(typeclass)
       case other => other :: Nil
     }
-    val instantiateParams = typeclass.subjects.map(new InstantiateParam(_))
-    def tree(debug: Boolean) = q"""
+    object instantiate {
+      val params = typeclass.subjects.map(new InstantiateParam(_))
+      val defs = params.map(_.typeDef)
+      val names = params.map(_.name)
+    }
+
+    val apply = if (config.apply) {
+      val ev = c.freshName(TermName("ev"))
+      q"""
+        // Generated apply to ease retrieval of an implicitly available
+        // instance of type class.
+        def apply[
+          ..${instantiate.defs}
+        ](
+          implicit $ev: ${typeclass.name}[..${instantiate.names}]
+        ): ${typeclass.name}[..${instantiate.names}] = $ev
+      """ :: Nil
+    } else Nil
+
+    val exports = if (config.export) {
+      def is_public(mods: Modifiers) =
+        !mods.hasFlag(Flag.PRIVATE) && !mods.hasFlag(Flag.PROTECTED)
+      val methods = typeclass.body.collect {
+        case DefDef(mods, name, tparams, paramss, ret, _) if is_public(mods) =>
+          val export_tparams = tparams ::: instantiate.defs
+          val export_paramss = paramss :::
+            List(q"implicit val ${c.freshName(TermName("ev"))}: ${typeclass.name}[..${instantiate.names}]") ::
+            Nil
+          q"""
+            def $name[ ..$export_tparams ]( ...$export_paramss): $ret =
+              apply[..${instantiate.names}].${name}(...${paramss.map(_.map(_.name))})
+          """
+      }
+      methods
+    } else Nil
+
+    def tree(config: Config) = q"""
       object ${typeclass.name.toTermName} {
+        // Companion members include:
+        // - Generated instances.
+        // - Other stuff caller has put inside the companion that Dandy
+        // ignores.
         ..${members.flatten}
+
+        ..$apply
+        ..$exports
+
+        // Macro def shorthand for building an instance outside of the
+        // companion. Yes, this macro generates a macro...
         def instantiate[
-          ..${instantiateParams.map(_.typeDef)}
-        ](body: Any*): ${typeclass.name}[..${instantiateParams.map(_.name)}] =
-          macro instantiateImpl[..${instantiateParams.map(_.name)}]
+          ..${instantiate.defs}
+        ](body: Any*): ${typeclass.name}[..${instantiate.names}] =
+          macro instantiateImpl[..${instantiate.names}]
+
+        // This macro splices a provided "body" (which can be anything, but is
+        // hopefully enough to implement the type class) inside an instance
+        // creation call. Takes care of type parameters, implicits, etc...
+        // Less boilerplate is more.
         def instantiateImpl[
-          ..${instantiateParams.map(_.typeDef)}
+          ..${instantiate.defs}
         ](
           c: scala.reflect.macros.whitebox.Context
         )(
           body: c.Expr[Any]*
         )(
-          implicit ..${instantiateParams.map(_.evidence)}
-        ): c.Expr[${typeclass.name}[..${instantiateParams.map(_.name)}]] = {
+          implicit ..${instantiate.params.map(_.evidence)}
+        ): c.Expr[${typeclass.name}[..${instantiate.names}]] = {
           import c.universe._
           val parts: Seq[Tree] = body.map(_.tree).flatMap {
             case Block(statements, exprs) => exprs :: statements
@@ -115,10 +166,10 @@ trait CompanionModel {
           }.map(dandy.OverrideDef[c.type](c)(_)).map(c.untypecheck(_))
           val tree = StringContext("new ", "[..", "] { ..", " }").q(
             TypeName(${typeclass.name.toString}),
-            ${instantiateParams.map(_.wt)}, parts
+            ${instantiate.params.map(_.wt)}, parts
           )
-          if ($debug) println(tree)
-          c.Expr[${typeclass.name}[..${instantiateParams.map(_.name)}]](tree)
+          if (${config.debug}) println(tree)
+          c.Expr[${typeclass.name}[..${instantiate.names}]](tree)
         }
       }
     """

@@ -21,7 +21,7 @@ trait Subjects {
     }
   }
 
-  class ExtractSubjects(tparams: List[TypeDef], params: List[Tree], marker: Option[String] = None) {
+  class ExtractSubjects(tparams: List[TypeDef], params: List[Tree]) {
     object ArgForParam {
       def unapply(arg: Tree): Option[TypeDef] = arg match {
         case Ident(arg @ TypeName(_)) =>

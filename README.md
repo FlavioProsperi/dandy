@@ -97,7 +97,7 @@ object foo2Example {
   import dandy._
 
   // context bounds on `A` require that a `Show[A]` exist for all instances of
-  // `Show` defined here or elsewhere
+  // `Foo2[A]` defined here or elsewhere
   @typeclass class Foo2[A:Show] {
     def foo2(a: A): String
   }
