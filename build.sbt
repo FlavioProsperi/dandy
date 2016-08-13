@@ -18,13 +18,13 @@ lazy val baseSettings = Seq(
   """
 ) ++ scalariformSettings ++ tutSettings
 
-lazy val cats = "org.typelevel" %% "cats" % "0.6.0"
+lazy val cats = "org.typelevel" %% "cats" % "0.6.1"
 
 lazy val deps = Seq(
  libraryDependencies ++= Seq(
    "com.chuusai" %% "shapeless" % "2.3.1",
-   "org.specs2" %% "specs2-core" % "3.8.3" % "test",
-   "org.specs2" %% "specs2-matcher-extra" % "3.8.3" % "test"))
+   "org.specs2" %% "specs2-core" % "3.8.4" % "test",
+   "org.specs2" %% "specs2-matcher-extra" % "3.8.4" % "test"))
 
 lazy val updateReadme = taskKey[Unit]("copy tut-generated README.md to project root")
 
