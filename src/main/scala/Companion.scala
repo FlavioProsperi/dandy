@@ -45,7 +45,19 @@ trait CompanionModel {
     body: List[Tree]
   ) extends Instance
 
-  case class ParametricInstance(
+  case class ValueParametricInstance(
+      args: List[TypeName],
+      instanceImplicits: List[Tree],
+      body: List[Tree]
+  ) extends Instance {
+    protected override def additionalEvidence =
+      instanceImplicits.collect {
+        case vd: ValDef => vd
+        case Typed(Ident(ten @ TermName(_)), Ident(tyn @ TypeName(_))) => q"val $ten: $tyn"
+      }
+  }
+
+  case class TypeParametricInstance(
       subjects: List[Subject],
       body: List[Tree]
   ) extends Instance {
@@ -61,10 +73,16 @@ trait CompanionModel {
           args = tparams.collect { case TypeDefName(tn) => tn },
           body = body
         ))
+      case q"instance[..$tparams](..$instanceImplicits)({ ..$body })" =>
+        Some(ValueParametricInstance(
+          args = tparams.collect { case TypeDefName(tn) => tn },
+          instanceImplicits = instanceImplicits,
+          body = body
+        ))
       case DefDef(_, TermName("instance"), tparams, _, _, body) =>
         (tree :: Nil) match {
           case Subjects(SubjectsAndBody(subjects, _)) =>
-            Some(ParametricInstance(
+            Some(TypeParametricInstance(
               subjects = subjects,
               body = body.children
             ))
